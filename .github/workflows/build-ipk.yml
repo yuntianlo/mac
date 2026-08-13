@@ -31,7 +31,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential libncurses5-dev gawk \
-            git subversion libssl-dev gettext unzip zlib1g-dev file wget
+            git subversion libssl-dev gettext unzip zlib1g-dev file wget zstd
 
       - name: 缓存 ImmortalWrt SDK
         id: cache-sdk
@@ -44,17 +44,30 @@ jobs:
             sdk-${{ env.REL_TAG }}-
 
       - name: 下载并解压 SDK (ramips/mt7621)
-        if: steps.cache-sdk.outputs.cache-hit != 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ env.REL_TAG }}
         run: |
-          ASSET=$(gh api repos/immortalwrt/immortalwrt/releases/tags/$TAG \
-                  --jq '.assets[].name' | grep "sdk-${ARCH}" | head -n1)
+          # 若上一次缓存已恢复且 SDK 完整，直接复用，避免重复下载
+          if [ -f sdk/Makefile ] && [ -d sdk/package ]; then
+            echo "SDK 缓存有效，跳过下载"
+            exit 0
+          fi
+          rm -rf sdk
+          VER="${REL_TAG#v}"   # 去掉 v 前缀 -> 24.10.4
+          BASE="https://downloads.immortalwrt.org/releases/${VER}/targets/ramips/mt7621"
+          ASSET=$(curl -fsSL "$BASE/" | grep -oiE "immortalwrt-sdk-${VER}-${ARCH}_[^\"<> ]+\.tar\.zst" | head -n1)
+          if [ -z "$ASSET" ]; then
+            echo "ERROR: 在 $BASE/ 未找到 SDK 资源，目录内容如下:"
+            curl -fsSL "$BASE/"
+            exit 1
+          fi
           echo "使用的 SDK 资源: $ASSET"
-          wget -q "https://github.com/immortalwrt/immortalwrt/releases/download/$TAG/$ASSET"
-          mkdir -p sdk && tar xf "$ASSET" -C sdk --strip-components=1
+          wget -q "${BASE}/${ASSET}"
+          mkdir -p sdk && tar -I zstd -xf "$ASSET" -C sdk --strip-components=1
           rm -f "$ASSET"
+          # 健全性检查：解压后必须存在 Makefile
+          if [ ! -f sdk/Makefile ]; then
+            echo "ERROR: SDK 解压后缺少 Makefile，解压可能失败"
+            exit 1
+          fi
 
       - name: 放入 randconf 包源码
         run: |
