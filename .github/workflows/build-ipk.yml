@@ -1,0 +1,96 @@
+name: Build randconf IPK
+
+on:
+  # 打 tag 自动编译并发布到对应 Release（推荐用法：git tag v24.10.4 && git push --tags）
+  push:
+    tags:
+      - "v*"
+  # 手动触发，仅上传 Artifact 供调试，不出 Release
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "ImmortalWrt 发布版本号，需与路由器固件一致，例如 v24.10.4"
+        required: true
+        default: "v24.10.4"
+
+env:
+  REL_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || github.event.inputs.release_tag }}
+  ARCH: ramips-mt7621
+
+permissions:
+  contents: write   # 打 tag 时创建/更新 Release 附件需要
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+
+      - name: 安装编译主机依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libncurses5-dev gawk \
+            git subversion libssl-dev gettext unzip zlib1g-dev file wget
+
+      - name: 缓存 ImmortalWrt SDK
+        id: cache-sdk
+        uses: actions/cache@v4
+        with:
+          # 解压后的 SDK 整目录，按版本号+架构做缓存键
+          path: sdk
+          key: sdk-${{ env.REL_TAG }}-${{ env.ARCH }}
+          restore-keys: |
+            sdk-${{ env.REL_TAG }}-
+
+      - name: 下载并解压 SDK (ramips/mt7621)
+        if: steps.cache-sdk.outputs.cache-hit != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ env.REL_TAG }}
+        run: |
+          ASSET=$(gh api repos/immortalwrt/immortalwrt/releases/tags/$TAG \
+                  --jq '.assets[].name' | grep "sdk-${ARCH}" | head -n1)
+          echo "使用的 SDK 资源: $ASSET"
+          wget -q "https://github.com/immortalwrt/immortalwrt/releases/download/$TAG/$ASSET"
+          mkdir -p sdk && tar xf "$ASSET" -C sdk --strip-components=1
+          rm -f "$ASSET"
+
+      - name: 放入 randconf 包源码
+        run: |
+          rm -rf sdk/package/randconf
+          mkdir -p sdk/package/randconf
+          cp -r Makefile files sdk/package/randconf/
+
+      - name: 编译 IPK
+        working-directory: sdk
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+          echo "CONFIG_PACKAGE_randconf=m" >> .config
+          make defconfig
+          # 清掉上一次缓存可能残留的旧 ipk，避免上传到过期的包
+          rm -f bin/packages/*/base/randconf_*.ipk
+          make package/randconf/compile V=s
+
+      - name: 收集产物路径
+        id: ipk
+        run: |
+          IPK=$(ls sdk/bin/packages/*/base/randconf_*.ipk | head -n1)
+          echo "ipk=$IPK" >> "$GITHUB_OUTPUT"
+          echo "产物: $IPK"
+
+      - name: 上传 IPK 到 Artifact（始终保留，便于手动调试）
+        uses: actions/upload-artifact@v4
+        with:
+          name: randconf-ipk
+          path: ${{ steps.ipk.outputs.ipk }}
+
+      - name: 发布到对应 tag 的 Release 附件
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.ipk.outputs.ipk }}
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
