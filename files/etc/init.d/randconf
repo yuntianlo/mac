@@ -1,0 +1,52 @@
+#!/bin/sh /etc/rc.common
+# randconf 服务: 开机随机化 / 无盘模式 / 定时守护
+START=99
+STOP=10
+USE_PROCD=1
+
+start_service() {
+	local diskless enabled bootr timer
+	diskless=$(uci -q get randconf.@randconf[0].diskless)
+	enabled=$(uci -q get randconf.@randconf[0].enabled)
+	bootr=$(uci -q get randconf.@randconf[0].boot_randomize)
+	timer=$(uci -q get randconf.@randconf[0].timer)
+
+	# 无盘模式: 应用防火墙屏蔽; 否则确保未屏蔽
+	if [ "$diskless" = "1" ]; then
+		/usr/bin/randconf diskless 1
+	else
+		uci -q delete firewall.randconf_block 2>/dev/null
+		uci commit firewall 2>/dev/null
+		/etc/init.d/firewall restart >/dev/null 2>&1
+	fi
+
+	# 开机随机化 (断电/重启自动修改)
+	if [ "$enabled" = "1" ] && [ "$bootr" = "1" ] && [ "$diskless" != "1" ]; then
+		/usr/bin/randconf randomize
+	fi
+
+	# 定时无序随机守护
+	if [ "$enabled" = "1" ] && [ "$timer" = "1" ]; then
+		procd_open_instance timer
+		procd_set_param command /usr/bin/randconf-timer
+		procd_set_param respawn
+		procd_close_instance
+	fi
+}
+
+reload_service() {
+	# 配置保存(reload)时不要误触发随机化, 仅让定时守护按新配置重新拉起
+	local enabled timer
+	enabled=$(uci -q get randconf.@randconf[0].enabled)
+	timer=$(uci -q get randconf.@randconf[0].timer)
+	if [ "$enabled" = "1" ] && [ "$timer" = "1" ]; then
+		procd_open_instance timer
+		procd_set_param command /usr/bin/randconf-timer
+		procd_set_param respawn
+		procd_close_instance
+	fi
+}
+
+service_triggers() {
+	procd_add_reload_trigger randconf
+}

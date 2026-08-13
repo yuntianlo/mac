@@ -1,0 +1,17 @@
+{
+	"randconf": {
+		"description": "路由器随机化配置与状态读取",
+		"read": {
+			"ubus": {
+				"luci": ["get", "set", "apply"]
+			},
+			"uci": ["randconf", "network", "system"]
+		},
+		"write": {
+			"ubus": {
+				"luci": ["get", "set", "apply"]
+			},
+			"uci": ["randconf"]
+		}
+	}
+}

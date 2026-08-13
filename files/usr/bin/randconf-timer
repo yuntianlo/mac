@@ -1,0 +1,24 @@
+#!/bin/sh
+# randconf 定时无序随机守护进程
+# 在 timer_min ~ timer_max 之间取随机间隔休眠后执行一次随机化, 循环执行
+. /usr/lib/randconf/common.sh
+
+while true; do
+	enabled=$(get_opt enabled)
+	timer=$(get_opt timer)
+	diskless=$(get_opt diskless)
+	if [ "$enabled" = "1" ] && [ "$timer" = "1" ] && [ "$diskless" != "1" ]; then
+		min=$(get_opt timer_min); max=$(get_opt timer_max)
+		[ -z "$min" ] && min=3600
+		[ -z "$max" ] && max=86400
+		span=$(( max - min ))
+		[ "$span" -lt 0 ] && span=0
+		# 0 ~ 16,777,215 的随机数
+		r=$(( $(rand_byte) + $(rand_byte)*256 + $(rand_byte)*65536 ))
+		delay=$(( min + r % (span + 1) ))
+		sleep "$delay"
+		/usr/bin/randconf randomize >/dev/null 2>&1
+	else
+		sleep 60
+	fi
+done

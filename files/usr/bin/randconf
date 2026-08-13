@@ -1,0 +1,197 @@
+#!/bin/sh
+# randconf - 路由器随机化命令行工具 (E8820S / ImmortalWrt)
+. /usr/lib/randconf/common.sh
+
+apply_network() {
+	/etc/init.d/network restart >/dev/null 2>&1
+	sleep 1
+	/etc/init.d/dnsmasq restart >/dev/null 2>&1
+}
+
+do_randomize_mac() {
+	local wan_mac lan_mac
+	wan_mac=$(get_opt wan_mac)
+	lan_mac=$(get_opt lan_mac)
+	[ -z "$wan_mac" ] && wan_mac=$(gen_mac)
+	[ -z "$lan_mac" ] && lan_mac=$(gen_mac)
+	uci set network.wan.macaddr="$wan_mac" 2>/dev/null
+	uci set network.lan.macaddr="$lan_mac" 2>/dev/null
+	uci set network.wan_dev.macaddr="$wan_mac" 2>/dev/null
+	uci set network.lan_dev.macaddr="$lan_mac" 2>/dev/null
+	uci commit network
+	echo "MAC  wan=$wan_mac  lan=$lan_mac"
+}
+
+do_randomize_ip() {
+	local lan_ip
+	lan_ip=$(get_opt lan_ip)
+	[ -z "$lan_ip" ] && lan_ip=$(gen_lan_ip)
+	uci set network.lan.ipaddr="$lan_ip"
+	uci commit network
+	uci set dhcp.lan.start='100'
+	uci set dhcp.lan.limit='100'
+	uci set dhcp.lan.leasetime='12h'
+	uci commit dhcp
+	echo "LAN 网关/路由器地址=$lan_ip"
+}
+
+do_randomize_name() {
+	local name
+	name=$(get_opt hostname)
+	[ -z "$name" ] && name=$(random_hostname)
+	uci set system.@system[0].hostname="$name"
+	uci commit system
+	echo "$name" > /proc/sys/kernel/hostname 2>/dev/null
+	echo "主机名=$name"
+}
+
+randomize_all() {
+	local diskless
+	diskless=$(get_opt diskless)
+	if [ "$diskless" = "1" ]; then
+		echo "无盘模式：跳过随机化，保持当前 LAN 网关"
+		return 0
+	fi
+	do_randomize_mac
+	do_randomize_ip
+	do_randomize_name
+	apply_network
+	echo "已随机化并应用"
+}
+
+cmd_set_mac() {
+	local wan="$1" lan="$2"
+	if [ -n "$wan" ]; then
+		if valid_mac "$wan"; then set_opt wan_mac "$wan"; else echo "错误: wan MAC 格式不对"; fi
+	fi
+	if [ -n "$lan" ]; then
+		if valid_mac "$lan"; then set_opt lan_mac "$lan"; else echo "错误: lan MAC 格式不对"; fi
+	fi
+	uci commit "$CFG"
+	echo "已保存 MAC 覆盖 (留空则该端随机生成)"
+}
+
+cmd_set_gw() {
+	local ip="$1"
+	if [ -n "$ip" ]; then
+		if valid_ip "$ip"; then set_opt lan_ip "$ip"; else echo "错误: 网关 IP 格式不对"; fi
+	fi
+	uci commit "$CFG"
+	echo "已保存网关覆盖 (留空则随机生成)"
+}
+
+cmd_set_name() {
+	local n="$1"
+	[ -n "$n" ] && set_opt hostname "$n"
+	uci commit "$CFG"
+	echo "已保存主机名覆盖 (留空则随机生成)"
+}
+
+# 把覆盖值立即写入 network/system 并应用
+cmd_apply_overrides() {
+	local wan lan ip name
+	wan=$(get_opt wan_mac); lan=$(get_opt lan_mac)
+	ip=$(get_opt lan_ip); name=$(get_opt hostname)
+	[ -n "$wan" ] && uci set network.wan.macaddr="$wan"
+	[ -n "$lan" ] && uci set network.lan.macaddr="$lan"
+	if [ -n "$ip" ]; then
+		uci set network.lan.ipaddr="$ip"
+		uci set dhcp.lan.start='100'
+		uci set dhcp.lan.limit='100'
+		uci set dhcp.lan.leasetime='12h'
+		uci commit dhcp
+	fi
+	if [ -n "$name" ]; then
+		uci set system.@system[0].hostname="$name"
+		echo "$name" > /proc/sys/kernel/hostname 2>/dev/null
+	fi
+	uci commit network
+	uci commit system
+	apply_network
+	echo "已应用手动指定"
+}
+
+block_admin() {
+	uci -q delete firewall.randconf_block 2>/dev/null
+	uci set firewall.randconf_block=rule
+	uci set firewall.randconf_block.name='randconf-block-admin'
+	uci set firewall.randconf_block.src='lan'
+	uci set firewall.randconf_block.proto='tcp'
+	uci add_list firewall.randconf_block.dest_port='80'
+	uci add_list firewall.randconf_block.dest_port='443'
+	uci set firewall.randconf_block.target='REJECT'
+	uci commit firewall
+	/etc/init.d/firewall restart >/dev/null 2>&1
+	local port
+	port=$(get_opt admin_port)
+	if [ -n "$port" ] && [ "$port" != "0" ]; then
+		uci set uhttpd.main.listen_http="0.0.0.0:$port"
+		uci commit uhttpd
+		/etc/init.d/uhttpd restart >/dev/null 2>&1
+	fi
+	echo "无盘模式: 已屏蔽 LAN 访问管理页(80/443)，运维请使用 admin_port 端口"
+}
+
+unblock_admin() {
+	uci -q delete firewall.randconf_block 2>/dev/null
+	uci commit firewall
+	/etc/init.d/firewall restart >/dev/null 2>&1
+	echo "已解除 LAN 管理页屏蔽"
+}
+
+cmd_diskless() {
+	local on="$1"
+	[ "$on" = "1" ] || on=0
+	set_opt diskless "$on"
+	uci commit "$CFG"
+	if [ "$on" = "1" ]; then
+		block_admin
+	else
+		unblock_admin
+	fi
+}
+
+show_status() {
+	echo "== randconf 状态 =="
+	echo "enable         : $(get_opt enabled)"
+	echo "boot_randomize : $(get_opt boot_randomize)"
+	echo "timer          : $(get_opt timer)  ($(get_opt timer_min)-$(get_opt timer_max)s 无序)"
+	echo "diskless       : $(get_opt diskless)"
+	echo "wan mac 覆盖   : $(get_opt wan_mac)"
+	echo "lan mac 覆盖   : $(get_opt lan_mac)"
+	echo "lan ip 覆盖    : $(get_opt lan_ip)"
+	echo "hostname 覆盖  : $(get_opt hostname)"
+	echo "admin_port     : $(get_opt admin_port)"
+	echo "--- 当前运行 ---"
+	echo "lan ip   : $(uci -q get network.lan.ipaddr)"
+	echo "hostname : $(uci -q get system.@system[0].hostname)"
+	echo "lan mac  : $(cat /sys/class/net/br-lan/address 2>/dev/null)"
+	echo "wan mac  : $(uci -q get network.wan.macaddr 2>/dev/null)"
+}
+
+usage() {
+	cat <<EOF
+用法: randconf <命令> [参数]
+  randomize            立即随机化 MAC / 网关 / 主机名 (无序)
+  mac <wan> <lan>      手动指定 MAC (任一留空则该端随机)
+  gw  <ip>             手动指定 LAN 网关/路由器地址
+  name <名称>          手动指定主机名 (留空则随机)
+  diskless <0|1>       无盘模式: 保持网关/不影响DHCP/屏蔽LAN管理页
+  timer <0|1>          定时无序随机开关 (重启服务生效)
+  status               查看状态
+  apply                应用网络变更(重启 network/dnsmasq)
+EOF
+}
+
+	case "$1" in
+	randomize) randomize_all ;;
+	apply_overrides) cmd_apply_overrides ;;
+	mac) cmd_set_mac "$2" "$3" ;;
+	gw|gateway) cmd_set_gw "$2" ;;
+	name) cmd_set_name "$2" ;;
+	diskless) cmd_diskless "$2" ;;
+	timer) set_opt timer "$2"; uci commit "$CFG"; echo "timer=$2 (约1分钟内生效)"; ;;
+	status) show_status ;;
+	apply) apply_network ;;
+	*) usage ;;
+esac

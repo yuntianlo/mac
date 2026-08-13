@@ -1,0 +1,94 @@
+#!/bin/sh
+# randconf 简易 Web 控制台 (uhttpd CGI, 无需 LuCI 依赖)
+. /usr/lib/randconf/common.sh
+
+urldecode() {
+	echo "$1" | sed 's/+/ /g'
+}
+
+getq() {
+	local kv
+	for kv in $(echo "$QUERY_STRING" | tr '&' ' '); do
+		case "$kv" in
+			$1=*) echo "$kv" | sed "s/^$1=//" | urldecode; return ;;
+		esac
+	done
+}
+
+action=$(getq action)
+
+	case "$action" in
+	randomize)       /usr/bin/randconf randomize >/dev/null 2>&1 ;;
+	apply_overrides) /usr/bin/randconf apply_overrides >/dev/null 2>&1 ;;
+	diskless_on)  /usr/bin/randconf diskless 1 >/dev/null 2>&1 ;;
+	diskless_off) /usr/bin/randconf diskless 0 >/dev/null 2>&1 ;;
+	setmac)       /usr/bin/randconf mac "$(getq wan)" "$(getq lan)" >/dev/null 2>&1 ;;
+	setgw)        /usr/bin/randconf gw "$(getq ip)" >/dev/null 2>&1 ;;
+	setname)      /usr/bin/randconf name "$(getq name)" >/dev/null 2>&1 ;;
+esac
+
+lan_ip=$(uci -q get network.lan.ipaddr)
+hostname=$(uci -q get system.@system[0].hostname)
+diskless=$(get_opt diskless)
+timer=$(get_opt timer)
+wan_mac=$(uci -q get network.wan.macaddr 2>/dev/null)
+lan_mac=$(uci -q get network.lan.macaddr 2>/dev/null)
+
+cat <<HTML
+Content-type: text/html; charset=utf-8
+
+<!DOCTYPE html>
+<html lang="zh"><head><meta charset="utf-8">
+<title>路由器随机化控制台</title>
+<style>
+body{font-family:sans-serif;margin:24px;color:#222}
+h2{margin-bottom:6px}
+fieldset{margin:12px 0;padding:10px 14px;border:1px solid #ccc;border-radius:6px}
+legend{font-weight:bold;padding:0 6px}
+code{background:#eee;padding:1px 5px;border-radius:3px}
+button{padding:4px 12px;margin:2px}
+input{padding:3px 6px}
+</style>
+</head><body>
+<h2>路由器随机化控制台</h2>
+<p>LAN 网关: <code>$lan_ip</code> &nbsp;|&nbsp; 主机名: <code>$hostname</code></p>
+<p>WAN MAC: <code>$wan_mac</code> &nbsp;|&nbsp; LAN MAC: <code>$lan_mac</code></p>
+
+<form method="get"><input type="hidden" name="action" value="randomize">
+<button type="submit">立即随机化(无序)</button></form>
+
+<form method="get">
+<p>无盘模式(保持网关/不影响DHCP/屏蔽LAN进管理页):
+<button type="submit" name="action" value="diskless_on">开启</button>
+<button type="submit" name="action" value="diskless_off">关闭</button></p>
+</form>
+
+<form method="get">
+<fieldset><legend>手动指定 MAC (留空=该端随机)</legend>
+<input type="hidden" name="action" value="setmac">
+WAN MAC: <input name="wan" placeholder="xx:xx:xx:xx:xx:xx">
+LAN MAC: <input name="lan" placeholder="xx:xx:xx:xx:xx:xx">
+<button>保存</button>
+</fieldset>
+</form>
+
+<form method="get">
+<fieldset><legend>手动指定网关(LAN IP)</legend>
+<input type="hidden" name="action" value="setgw">
+IP: <input name="ip" placeholder="如 192.168.50.1">
+<button>保存</button>
+</fieldset>
+</form>
+
+<form method="get">
+<fieldset><legend>手动指定主机名</legend>
+<input type="hidden" name="action" value="setname">
+名称: <input name="name" placeholder="如 MyRouter">
+<button>保存</button>
+</fieldset>
+</form>
+
+<p>无盘模式: <b>$diskless</b> &nbsp;|&nbsp; 定时无序随机: <b>$timer</b></p>
+<p style="color:#888;font-size:12px">提示: 无盘模式开启后, LAN 客户端无法访问 80/443 管理页; 如需运维请在 /etc/config/randconf 设置 admin_port 并把 uhttpd 监听端口改到该端口。</p>
+</body></html>
+HTML

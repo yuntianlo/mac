@@ -1,0 +1,12 @@
+config randconf
+	option enabled '1'
+	option boot_randomize '1'
+	option timer '0'
+	option timer_min '3600'
+	option timer_max '86400'
+	option diskless '0'
+	option admin_port '0'
+	option wan_mac ''
+	option lan_mac ''
+	option lan_ip ''
+	option hostname ''
