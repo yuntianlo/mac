@@ -4,8 +4,13 @@
 CFG=randconf
 
 # 一个 0-255 的随机字节
+# 兼容写法: 从 /dev/urandom 取字节, 仅保留 ASCII 数字后用 %256
+# 不依赖 od / hexdump / xxd, 也不依赖 bash 的 $RANDOM (路由器是 busybox ash)
 rand_byte() {
-	od -An -N1 -tu1 /dev/urandom | tr -d ' \n'
+	local n
+	n=$(head -c 256 /dev/urandom 2>/dev/null | tr -dc '0-9' | head -c 9)
+	[ -z "$n" ] && n=0
+	echo $(( n % 256 ))
 }
 
 # 生成本地管理位(第2位=1) + 单播位(第1位=0) 的随机 MAC
