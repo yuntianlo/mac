@@ -31,8 +31,8 @@ lan_ip=$(uci -q get network.lan.ipaddr)
 hostname=$(uci -q get system.@system[0].hostname)
 diskless=$(get_opt diskless)
 timer=$(get_opt timer)
-wan_mac=$(uci -q get network.wan.macaddr 2>/dev/null)
-lan_mac=$(uci -q get network.lan.macaddr 2>/dev/null)
+wan_mac=$(iface_mac wan)
+lan_mac=$(iface_mac lan)
 
 cat <<HTML
 Content-type: text/html; charset=utf-8

@@ -14,10 +14,8 @@ do_randomize_mac() {
 	lan_mac=$(get_opt lan_mac)
 	[ -z "$wan_mac" ] && wan_mac=$(gen_mac)
 	[ -z "$lan_mac" ] && lan_mac=$(gen_mac)
-	uci set network.wan.macaddr="$wan_mac" 2>/dev/null
-	uci set network.lan.macaddr="$lan_mac" 2>/dev/null
-	uci set network.wan_dev.macaddr="$wan_mac" 2>/dev/null
-	uci set network.lan_dev.macaddr="$lan_mac" 2>/dev/null
+	set_iface_mac wan "$wan_mac"
+	set_iface_mac lan "$lan_mac"
 	uci commit network
 	echo "MAC  wan=$wan_mac  lan=$lan_mac"
 }
@@ -92,8 +90,8 @@ cmd_apply_overrides() {
 	local wan lan ip name
 	wan=$(get_opt wan_mac); lan=$(get_opt lan_mac)
 	ip=$(get_opt lan_ip); name=$(get_opt hostname)
-	[ -n "$wan" ] && uci set network.wan.macaddr="$wan"
-	[ -n "$lan" ] && uci set network.lan.macaddr="$lan"
+	[ -n "$wan" ] && set_iface_mac wan "$wan"
+	[ -n "$lan" ] && set_iface_mac lan "$lan"
 	if [ -n "$ip" ]; then
 		uci set network.lan.ipaddr="$ip"
 		uci set dhcp.lan.start='100'
@@ -165,8 +163,8 @@ show_status() {
 	echo "--- 当前运行 ---"
 	echo "lan ip   : $(uci -q get network.lan.ipaddr)"
 	echo "hostname : $(uci -q get system.@system[0].hostname)"
-	echo "lan mac  : $(cat /sys/class/net/br-lan/address 2>/dev/null)"
-	echo "wan mac  : $(uci -q get network.wan.macaddr 2>/dev/null)"
+	echo "lan mac  : $(iface_mac lan)"
+	echo "wan mac  : $(iface_mac wan)"
 }
 
 usage() {

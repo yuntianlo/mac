@@ -39,6 +39,29 @@ random_hostname() {
 	printf 'RTR-%02X%02X%02X%02X' "$(rand_byte)" "$(rand_byte)" "$(rand_byte)" "$(rand_byte)"
 }
 
+# 把 MAC 写入指定接口对应的 device 段 (现代 OpenWrt 的正确方式)
+# 解析 interface 的 device 名(如 br-lan / wan), 找到或新建该 device 段并设置 macaddr
+set_iface_mac() {
+	local iface="$1" mac="$2" dev section
+	[ -z "$iface" ] && return 1
+	dev=$(uci -q get "network.${iface}.device")
+	[ -z "$dev" ] && dev="$iface"
+	section=$(uci show network 2>/dev/null | grep "\.name='${dev}'" | head -n1 | cut -d. -f1-2)
+	if [ -z "$section" ]; then
+		section="network.$(uci add network device)"
+		uci set "${section}.name=${dev}"
+	fi
+	uci set "${section}.macaddr=${mac}"
+}
+
+# 读取接口当前运行中的 MAC (从 /sys/class/net 取真实值)
+iface_mac() {
+	local dev
+	dev=$(uci -q get "network.$1.device")
+	[ -z "$dev" ] && dev="$1"
+	cat "/sys/class/net/${dev}/address" 2>/dev/null
+}
+
 get_opt() {
 	uci -q get "$CFG.@$CFG[0].$1"
 }
