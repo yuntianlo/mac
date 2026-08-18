@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=randconf
 PKG_VERSION:=1.0
-PKG_RELEASE:=3
+PKG_RELEASE:=6
 
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)
 
@@ -29,6 +29,23 @@ endef
 
 define Package/randconf/conffiles
 /etc/config/randconf
+endef
+
+# 安装/升级完成后立即执行:
+#  - 强制 enabled/boot_randomize/timer=0 (不因旧配置残留而自动随机化)
+#  - 删除开机自启链接 (旧包 enable 残留, 需用户手动 /etc/init.d/randconf enable)
+define Package/randconf/postinst
+#!/bin/sh
+ROOT="$${IPKG_INSTROOT:-/}"
+[ -d "$$ROOT/etc/config" ] || exit 0
+UCI="uci -c $$ROOT/etc/config"
+$$UCI -q get randconf.@randconf[0] >/dev/null 2>&1 || $$UCI set randconf.@randconf[0]=randconf
+$$UCI set randconf.@randconf[0].enabled='0'
+$$UCI set randconf.@randconf[0].boot_randomize='0'
+$$UCI set randconf.@randconf[0].timer='0'
+$$UCI commit randconf
+rm -f "$$ROOT/etc/rc.d/S99randconf" "$$ROOT/etc/rc.d/K10randconf"
+exit 0
 endef
 
 define Build/Prepare

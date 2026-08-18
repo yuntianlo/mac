@@ -1,7 +1,10 @@
 #!/bin/sh
 # randconf 定时无序随机守护进程
 # 在 timer_min ~ timer_max 之间取随机间隔休眠后执行一次随机化, 循环执行
+# 日志输出到 syslog (logread | grep randconf)
 . /usr/lib/randconf/common.sh
+
+LOG() { logger -t "randconf[$$]" "$@"; }
 
 while true; do
 	enabled=$(get_opt enabled)
@@ -16,9 +19,13 @@ while true; do
 		# 0 ~ 16,777,215 的随机数
 		r=$(( $(rand_byte) + $(rand_byte)*256 + $(rand_byte)*65536 ))
 		delay=$(( min + r % (span + 1) ))
+		LOG "定时随机: 将在 ${delay}s 后执行"
 		sleep "$delay"
+		LOG "定时随机: 触发 randomize"
 		/usr/bin/randconf randomize >/dev/null 2>&1
+		LOG "定时随机: 完成, 等待下一轮"
 	else
+		LOG "定时随机: 未启用 (enabled=$enabled timer=$timer diskless=$diskless), 60s 后重检"
 		sleep 60
 	fi
 done

@@ -1,6 +1,6 @@
 config randconf
-	option enabled '1'
-	option boot_randomize '1'
+	option enabled '0'
+	option boot_randomize '0'
 	option timer '0'
 	option timer_min '3600'
 	option timer_max '86400'

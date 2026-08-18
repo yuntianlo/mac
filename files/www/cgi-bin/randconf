@@ -3,14 +3,29 @@
 . /usr/lib/randconf/common.sh
 
 urldecode() {
-	echo "$1" | sed 's/+/ /g'
+	local s="$1"
+	s=$(echo "$s" | sed 's/+/ /g')
+	# %xx → 对应字符 (busybox ash 兼容, 逐个替换)
+	s=$(echo "$s" | sed '
+		s/%0d/\r/g; s/%0a/\n/g;
+		s/%20/ /g; s/%21/!/g; s/%22/"/g; s/%23/#/g;
+		s/%24/\$/g; s/%25/%/g; s/%26/\&/g; s/%27/'\''/g;
+		s/%28/(/g; s/%29/)/g; s/%2a/*/g; s/%2b/+/g;
+		s/%2c/,/g; s/%2d/-/g; s/%2e/./g; s/%2f/\//g;
+		s/%3a/:/g; s/%3b/;/g; s/%3c/</g; s/%3d/=/g;
+		s/%3e/>/g; s/%3f/?/g; s/%40/@/g;
+		s/%5b/[/g; s/%5c/\\/g; s/%5d/]/g; s/%5e/^/g;
+		s/%5f/_/g; s/%60/`/g; s/%7b/{/g; s/%7c/|/g;
+		s/%7d/}/g; s/%7e/~/g
+	')
+	echo "$s"
 }
 
 getq() {
-	local kv
+	local kv v
 	for kv in $(echo "$QUERY_STRING" | tr '&' ' '); do
 		case "$kv" in
-			$1=*) echo "$kv" | sed "s/^$1=//" | urldecode; return ;;
+			$1=*) v="${kv#$1=}"; echo "$v" | sed 's/+/ /g'; return ;;
 		esac
 	done
 }

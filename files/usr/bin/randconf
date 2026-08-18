@@ -134,6 +134,14 @@ unblock_admin() {
 	uci -q delete firewall.randconf_block 2>/dev/null
 	uci commit firewall
 	/etc/init.d/firewall restart >/dev/null 2>&1
+	# 若开启无盘模式时曾用 admin_port 改过 uhttpd 端口, 此处改回 80
+	local port
+	port=$(get_opt admin_port)
+	if [ -n "$port" ] && [ "$port" != "0" ]; then
+		uci set uhttpd.main.listen_http='0.0.0.0:80'
+		uci commit uhttpd
+		/etc/init.d/uhttpd restart >/dev/null 2>&1
+	fi
 	echo "已解除 LAN 管理页屏蔽"
 }
 
@@ -181,14 +189,14 @@ usage() {
 EOF
 }
 
-	case "$1" in
+case "$1" in
 	randomize) randomize_all ;;
 	apply_overrides) cmd_apply_overrides ;;
 	mac) cmd_set_mac "$2" "$3" ;;
 	gw|gateway) cmd_set_gw "$2" ;;
 	name) cmd_set_name "$2" ;;
 	diskless) cmd_diskless "$2" ;;
-	timer) set_opt timer "$2"; uci commit "$CFG"; echo "timer=$2 (约1分钟内生效)"; ;;
+	timer) set_opt timer "$2"; uci commit "$CFG"; echo "timer=$2 (约1分钟内生效)" ;;
 	status) show_status ;;
 	apply) apply_network ;;
 	*) usage ;;

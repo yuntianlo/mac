@@ -9,6 +9,8 @@ CFG=randconf
 rand_byte() {
 	local n
 	n=$(head -c 256 /dev/urandom 2>/dev/null | tr -dc '0-9' | head -c 9)
+	# 去前导零: 数字串以 08/09 开头时 busybox ash 会按八进制解析直接报错
+	n=$(printf '%s' "$n" | sed 's/^0*//')
 	[ -z "$n" ] && n=0
 	echo $(( n % 256 ))
 }
@@ -41,15 +43,20 @@ random_hostname() {
 
 # 把 MAC 写入指定接口对应的 device 段 (现代 OpenWrt 的正确方式)
 # 解析 interface 的 device 名(如 br-lan / wan), 找到或新建该 device 段并设置 macaddr
-set_iface_mac() {
+	set_iface_mac() {
 	local iface="$1" mac="$2" dev section
 	[ -z "$iface" ] && return 1
 	dev=$(uci -q get "network.${iface}.device")
 	[ -z "$dev" ] && dev="$iface"
 	section=$(uci show network 2>/dev/null | grep "\.name='${dev}'" | head -n1 | cut -d. -f1-2)
 	if [ -z "$section" ]; then
+		# 新建 device 段: 根据设备名推测类型 (br-lan=bridge, 其它=物理接口)
 		section="network.$(uci add network device)"
 		uci set "${section}.name=${dev}"
+		case "$dev" in
+			br-*) uci set "${section}.type='bridge'" ;;
+			*)    uci set "${section}.type=''";;
+		esac
 	fi
 	uci set "${section}.macaddr=${mac}"
 }

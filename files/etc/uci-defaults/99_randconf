@@ -1,14 +1,13 @@
 #!/bin/sh
-# 生成默认配置(若已存在则跳过, 避免覆盖用户改动)
-uci -q get randconf.@randconf[0] >/dev/null 2>&1 || {
-	uci set randconf.@randconf[0]=randconf
-	uci set randconf.@randconf[0].enabled='0'
-	uci set randconf.@randconf[0].boot_randomize='0'
-	uci set randconf.@randconf[0].timer='0'
-	uci set randconf.@randconf[0].timer_min='3600'
-	uci set randconf.@randconf[0].timer_max='86400'
-	uci set randconf.@randconf[0].diskless='0'
-	uci set randconf.@randconf[0].admin_port='0'
-	uci commit randconf
-}
+# randconf 首次启动配置: 安装/升级后强制默认关闭随机化
+# 即使旧版本残留 enabled=1, 也会在这里被重置为 0 (需用户在 LuCI 页面手动启用)
+uci -q get randconf.@randconf[0] >/dev/null 2>&1 || uci set randconf.@randconf[0]=randconf
+uci set randconf.@randconf[0].enabled='0'
+uci set randconf.@randconf[0].boot_randomize='0'
+uci set randconf.@randconf[0].timer='0'
+uci set randconf.@randconf[0].timer_min='3600'
+uci set randconf.@randconf[0].timer_max='86400'
+uci set randconf.@randconf[0].diskless='0'
+uci set randconf.@randconf[0].admin_port='0'
+uci commit randconf 2>/dev/null
 exit 0
