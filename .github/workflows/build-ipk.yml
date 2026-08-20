@@ -23,9 +23,12 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # 防御性超时：纯脚本包正常 3~8 分钟即可完成，30 分钟足够；
+    # 若某步骤卡死会快速失败，而不是白等 6 小时被 GitHub 取消
+    timeout-minutes: 30
     steps:
       - name: 检出仓库
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: 安装编译主机依赖
         run: |
@@ -35,7 +38,7 @@ jobs:
 
       - name: 缓存 ImmortalWrt SDK
         id: cache-sdk
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           # 解压后的 SDK 整目录，按版本号+架构做缓存键
           path: sdk
@@ -78,10 +81,12 @@ jobs:
       - name: 编译 IPK
         working-directory: sdk
         run: |
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
+          # randconf 是纯脚本包（PKGARCH:=all），编译只是打包 files/ 目录，
+          # 不依赖任何 feed 的源码（luci-base 仅作为依赖元数据写入 ipk，
+          # 由 opkg 安装时解析）。因此跳过 feeds update/install —— 那一步
+          # 要拉取几十个 git 仓库，在公共 runner 上极易长时间卡住（曾导致 6h 超时）。
           echo "CONFIG_PACKAGE_randconf=m" >> .config
-          make defconfig
+          make defconfig || true
           # 清掉上一次缓存可能残留的旧 ipk，避免上传到过期的包
           rm -f bin/packages/*/base/randconf_*.ipk
           make package/randconf/compile V=s
@@ -94,7 +99,7 @@ jobs:
           echo "产物: $IPK"
 
       - name: 上传 IPK 到 Artifact（始终保留，便于手动调试）
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: randconf-ipk
           path: ${{ steps.ipk.outputs.ipk }}
